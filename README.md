@@ -341,8 +341,6 @@ Evolution solved this problem millions of years ago. I just translated it to CUD
 - [ ] Comparison against CUDA dynamic parallelism
 - [ ] Framework integration (PyTorch, JAX)
 
-### Publication
-- [ ] Conference paper submission (targeting MICCAI, IEEE ICIP, or similar)
 
 ---
 

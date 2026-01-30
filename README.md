@@ -54,7 +54,9 @@ offsets = [0, 50000, 120000, ...]  # M entries
 block_to_image[block_id] → image_id
 ```
 
-## Results (RTX 4090, 10K images, ~500M pixels)
+## Results
+
+### Synthetic Benchmark (RTX 4090, 10K images, ~500M pixels)
 
 | Approach | Memory | Kernel | Total |
 |----------|--------|--------|-------|
@@ -69,9 +71,36 @@ block_to_image[block_id] → image_id
 - C kernel matches A's speed while using **9000x less memory** than A.
 - C uses only **0.27 MB** vs A's 2475 MB—this is the main win.
 
+### Video Frame Benchmark (1300 frames, 862M pixels)
+
+Real video data extracted from Big Buck Bunny via ffmpeg at four resolutions (180p, 480p, 720p, 1080p). This creates a realistic 36x size imbalance between smallest and largest frames.
+
+| Approach | Memory | Kernel | Total |
+|----------|--------|--------|-------|
+| A (Table) | 3289 MB | 50 ms | 2021 ms |
+| B (Search) | 0.01 MB | 50 ms | 409 ms |
+| C (Block) | 0.26 MB | 49 ms | 409 ms |
+
+**C vs A: 4.9x faster, 12450x less memory.**
+
+B and C are essentially tied on RTX 4090, which is expected—the offset array fits in L2 cache.
+
+### YOLO Object Detection Pipeline (200 frames)
+
+End-to-end benchmark: preprocess variable-size images → YOLOv8 inference.
+
+| Method | Preprocess | Inference | Total |
+|--------|------------|-----------|-------|
+| CPU (PIL) | 1530 ms | 347 ms | 1877 ms |
+| GPU (Block Metadata) | 1211 ms | 267 ms | 1478 ms |
+
+**1.27x faster total pipeline with identical detection results (98 detections).**
+
+This gap will widen on edge devices where CPU is weaker and GPU preprocessing matters more.
+
 ## The Surprising Part
 
-I expected binary search to be way slower due to O(log M) overhead and branch divergence. It wasn't. On RTX 4090, the 0.08 MB offset array fits entirely in L2 cache (72 MB), so binary search is nearly free.
+I expected binary search to be way slower due to O(log M) overhead and branch divergence. It wasn't. On RTX 4090, the offset array fits entirely in L2 cache (72 MB), so binary search is nearly free.
 
 **When I scaled to 1M images:**
 
@@ -90,6 +119,8 @@ B wins total by 1.5%, but C kernel is 8% faster. The log₂(M) penalty is starti
 | Tiny items, massive M (1M+) | B | Zero setup overhead |
 | Weak GPU (small L2 cache) | C | B will cache-miss |
 | Need different kernels per block | C | B can't express this |
+| Real video frames | Tie | Both beat lookup table |
+| ML preprocessing pipeline | C | Enables GPU batching |
 
 ## What C Can Do That B Can't
 
@@ -111,25 +142,30 @@ If you just need image IDs, use B. If you need scheduling flexibility, C is the 
 ## Limitations
 
 - Only tested on RTX 4090. Results will differ on weaker GPUs.
-- D2H transfer (257ms) dominates total time, masking kernel differences.
+- D2H transfer dominates total time, masking kernel differences.
 - In fused pipelines (no D2H), the kernel speed difference would matter more.
+- PyTorch's built-in resize ops are faster than custom Numba kernels on 4090 (but PyTorch isn't available on all edge devices).
 
-## Running the Benchmark
+## Running the Benchmarks
 
 ```bash
-# Basic test
-python3 triple_baseline_benchmark.py --images 10000
+# Install dependencies
+pip install numba numpy pillow torch ultralytics
 
-# Scale test  
-python3 triple_baseline_benchmark.py --images 1000000 --tiny
+# Synthetic benchmark
+python triple_baseline_benchmark.py --images 10000
 
-# Stress test (10x compute per pixel)
-python3 triple_baseline_benchmark.py --heavy
+# Video frame benchmark (requires ffmpeg)
+python video_frame_extract.py --download --extract --prepare
+python video_benchmark.py
+
+# YOLO pipeline benchmark
+python edge_benchmark.py
 ```
 
 ## Code
 
-The benchmark is ~800 lines of Python/Numba CUDA. Nothing fancy. Setup uses `@njit` for speed.
+The benchmark is Python/Numba CUDA. Setup uses `@njit` for speed.
 
 Key kernel structure for approach C:
 
@@ -157,6 +193,8 @@ def kernel_c(images, offsets, widths, heights,
 
 4. The "best" approach depends on your workload. I've provided the numbers; pick what fits.
 
+5. On real video workloads, both B and C are viable. A is not.
+
 ## Where This Actually Matters
 
 On RTX 4090, B ≈ C. But the gap widens on:
@@ -164,8 +202,26 @@ On RTX 4090, B ≈ C. But the gap widens on:
 - **Edge devices (Jetson)**: 2MB L2 cache means binary search will miss. Block metadata stays O(1).
 - **Multi-tenant GPUs (MIG)**: Shared cache = contention. Deterministic O(1) beats variable binary search.
 - **Gigapixel images (medical/satellite)**: 100K×100K image = 40GB lookup table. Block metadata = only option.
+- **ML preprocessing pipelines**: When you need GPU-accelerated batched resize before inference.
 
-I only have a 4090 to test on. If someone has Jetson results, I'd love to see them.
+Jetson Orin Nano ordered. Will update with edge device results.
+
+---
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `triple_baseline_benchmark.py` | Synthetic benchmark (A vs B vs C) |
+| `video_frame_extract.py` | Extract frames from video via ffmpeg |
+| `video_benchmark.py` | Benchmark on real video frames |
+| `edge_benchmark.py` | CPU vs GPU preprocessing for YOLO |
+
+## Hardware
+
+- GPU: NVIDIA RTX 4090 (24GB VRAM, 72MB L2)
+- CPU: AMD Ryzen 9800X3D
+- RAM: 64GB DDR5
 
 ---
 

@@ -1,297 +1,142 @@
-# 🐙 Octopus: Memory-Efficient GPU Scheduling for Variable-Length Batches
+# GPU Variable-Length Batch Processing: A Benchmark Study
 
-A novel block-level GPU scheduling approach that achieves **O(1) dispatch** without **O(N) mapping tables**, enabling efficient processing of variable-length data (images, sequences, point clouds) on GPUs.
+I needed to process batches of variable-sized images on GPU without padding. Tried three approaches, benchmarked them properly, and found some surprising results.
 
 ## The Problem
 
-When processing batches of variable-length items on GPUs, existing approaches face a fundamental tradeoff:
+You have 10,000 images of different sizes. You want to run a kernel on all pixels. Options:
 
-| Approach | Memory | Kernel Speed | Setup Time |
-|----------|--------|--------------|------------|
-| **Padding** | Wastes 30-50% compute | Fast | Fast |
-| **O(1) Lookup Table** | O(N) - explodes with data | Fast | Slow |
-| **Binary Search** | O(M) - minimal | Slow (O(log M)) | Fast |
+1. **Pad everything** to max size → wastes compute
+2. **Flatten into one array** → but then how does each thread know which image it's processing?
 
-**Octopus (Hybrid)** breaks this tradeoff:
+I tested three solutions to #2.
 
-| Approach | Memory | Kernel Speed | Setup Time |
-|----------|--------|--------------|------------|
-| **🐙 Octopus** | O(B) ≈ O(M) | Fast (O(1)) | Fast |
+## Three Approaches
 
-Where:
-- N = total pixels/tokens
-- M = number of items
-- B = number of blocks (≈ M for normal workloads)
+### A: Lookup Table
+```python
+# Build a mapping for every pixel
+pixel_to_image[pixel_idx] → image_id
 
-## Key Results
-
-### RTX 4090 Benchmarks (10K images, 550M pixels)
-
-```
-Baseline                Setup      H2D     Memory     Kernel      D2H      TOTAL
-─────────────────────────────────────────────────────────────────────────────────
-A (O(1) Lookup)       619.71ms  209.99ms  2474.65MB   30.90ms  256.63ms  1117.23ms
-B (Binary Search)       0.00ms    0.01ms     0.08MB   35.61ms  256.63ms   292.26ms
-C (Octopus/Hybrid)      0.06ms    0.30ms     0.27MB   31.42ms  256.63ms   288.42ms
-                                                                          ^^^^^^^^
-                                                                          WINNER!
+# 500M pixels × 4 bytes = 2GB memory
 ```
 
-**Key findings:**
-- ✅ **Octopus wins total time** (288ms vs 292ms for Binary Search)
-- ✅ **9000x less memory** than O(1) Lookup (0.27 MB vs 2474 MB)
-- ✅ **13% faster kernel** than Binary Search (31.4ms vs 35.6ms)
-- ✅ **3.9x faster total** than O(1) Lookup
-
-### Scaling Analysis (1M images)
-
-| Metric | Binary Search | Octopus |
-|--------|---------------|---------|
-| Kernel time | 31.75 ms | 25.98 ms |
-| **Kernel speedup** | - | **22% faster** |
-
-At scale (M = 1M), Binary Search's O(log M) penalty becomes visible:
-- log₂(10K) = 14 steps
-- log₂(1M) = 20 steps (+43% more comparisons)
-
-## When to Use Each Approach
-
-```
-┌─────────────────┬──────────────────────────────────────────────────────┐
-│ Scenario        │ Recommendation                                       │
-├─────────────────┼──────────────────────────────────────────────────────┤
-│ Normal workload │ 🐙 Octopus - wins total time, extensible            │
-│ (10K-100K items)│                                                      │
-├─────────────────┼──────────────────────────────────────────────────────┤
-│ Tiny items +    │ Binary Search - zero setup wins when kernel         │
-│ massive M (1M+) │ overhead < setup overhead                            │
-├─────────────────┼──────────────────────────────────────────────────────┤
-│ Kernel reuse    │ O(1) Lookup - if same batch runs 100+ times,        │
-│ (100+ runs)     │ amortized setup cost becomes negligible              │
-├─────────────────┼──────────────────────────────────────────────────────┤
-│ Edge/Embedded   │ 🐙 Octopus - stable on weak GPUs with small cache   │
-│ (Jetson, MIG)   │                                                      │
-├─────────────────┼──────────────────────────────────────────────────────┤
-│ Cloud API       │ 🐙 Octopus - deterministic latency for SLA          │
-│ (high traffic)  │                                                      │
-└─────────────────┴──────────────────────────────────────────────────────┘
+### B: Binary Search  
+```python
+# Store only offsets (where each image starts)
+# Kernel does binary search: O(log M) per pixel
+offsets = [0, 50000, 120000, ...]  # M entries
 ```
 
-## Architecture
-
-### The Octopus Metaphor 🐙
-
-> An octopus coordinates movement at the **arm level**, not the **neuron level**.
-> Each arm has local autonomy, but the brain provides high-level coordination.
-
-Similarly, Octopus dispatches work at the **block level**:
-
-```
-Traditional (O(1) Lookup):
-  pixel_0 → image_3    ┐
-  pixel_1 → image_3    │ 550M entries!
-  pixel_2 → image_3    │ 2.4 GB memory
-  ...                  ┘
-
-Octopus (Block Metadata):
-  block_0 → {image_id: 3, start: 0, end: 65536}     ┐
-  block_1 → {image_id: 3, start: 65536, end: 131072} │ 10K entries
-  block_2 → {image_id: 7, start: 0, end: 42000}      │ 0.27 MB memory
-  ...                                                ┘
+### C: Block-Level Metadata
+```python
+# Each CUDA block knows which image it handles
+# O(1) lookup per block, not per pixel
+block_to_image[block_id] → image_id
 ```
 
-### Block Metadata Structure
+## Results (RTX 4090, 10K images, ~500M pixels)
+
+| Approach | Memory | Kernel | Total |
+|----------|--------|--------|-------|
+| A (Table) | 2475 MB | 31 ms | 1117 ms |
+| B (Search) | 0.08 MB | 36 ms | 292 ms |
+| C (Block) | 0.27 MB | 31 ms | 288 ms |
+
+**Findings:**
+
+- A is useless. Setup (619ms) + H2D transfer (210ms) kills it.
+- B and C are close. C wins by 4ms (1.4%).
+- C kernel matches A's speed while using 9000x less memory than A.
+
+## The Surprising Part
+
+I expected binary search to be way slower due to O(log M) overhead and branch divergence. It wasn't. On RTX 4090, the 0.08 MB offset array fits entirely in L2 cache (72 MB), so binary search is nearly free.
+
+**When I scaled to 1M images:**
+
+| Approach | Kernel | Total |
+|----------|--------|-------|
+| B (Search) | 31.6 ms | 250 ms |
+| C (Block) | 29.3 ms | 254 ms |
+
+B wins total by 1.5%, but C kernel is 8% faster. The log₂(M) penalty is starting to show.
+
+## When Does Each Win?
+
+| Scenario | Winner | Why |
+|----------|--------|-----|
+| Normal workload (10K images) | C | Fastest total |
+| Tiny items, massive M (1M+) | B | Zero setup overhead |
+| Weak GPU (small L2 cache) | C | B will cache-miss |
+| Need different kernels per block | C | B can't express this |
+
+## What C Can Do That B Can't
+
+Binary search gives you an image ID. That's it.
+
+Block metadata can carry whatever you want:
 
 ```python
-# O(B) memory where B ≈ M for normal workloads
-block_to_image: int32[B]   # Which image this block processes
-block_start:    int64[B]   # Local start offset within image
-block_end:      int64[B]   # Local end offset within image
+block_info = {
+    'image_id': 3,
+    'priority': HIGH,      # process important images first  
+    'kernel_type': BLUR,   # different operations per block
+    'stream_id': 2,        # multi-stream scheduling
+}
 ```
 
-### Kernel Design
+If you just need image IDs, use B. If you need scheduling flexibility, C is the only option.
+
+## Limitations
+
+- Only tested on RTX 4090. Results will differ on weaker GPUs.
+- D2H transfer (257ms) dominates total time, masking kernel differences.
+- In fused pipelines (no D2H), the kernel speed difference would matter more.
+
+## Running the Benchmark
+
+```bash
+# Basic test
+python3 triple_baseline_benchmark.py --images 10000
+
+# Scale test  
+python3 triple_baseline_benchmark.py --images 1000000 --tiny
+
+# Stress test (10x compute per pixel)
+python3 triple_baseline_benchmark.py --heavy
+```
+
+## Code
+
+The benchmark is ~800 lines of Python/Numba CUDA. Nothing fancy. Setup uses `@njit` for speed.
+
+Key kernel structure for approach C:
 
 ```python
 @cuda.jit
-def octopus_kernel(images_flat, offsets, widths, heights,
-                   block_to_image, block_start, block_end, output):
+def kernel_c(images, offsets, widths, heights,
+             block_to_image, block_start, block_end, output):
+    
     block_id = cuda.blockIdx.x
+    img_id = block_to_image[block_id]  # O(1)
     
-    # O(1) lookup - no search needed!
-    img_id = block_to_image[block_id]
-    local_start = block_start[block_id]
-    local_end = block_end[block_id]
-    
-    # Process pixels within this block's range
-    for local_idx in range(local_start + tid, local_end, stride):
-        # ... image processing kernel ...
+    # Each thread processes pixels in its assigned range
+    for local_idx in range(block_start[block_id] + tid, 
+                           block_end[block_id], stride):
+        # ... do work
 ```
 
-## Why Octopus Wins
+## Conclusions
 
-### 1. O(1) Dispatch Stability
+1. For variable-length GPU batching, don't use lookup tables. The memory and setup cost isn't worth it.
 
-Binary Search performance depends on **cache hit rate**:
-- RTX 4090 (72 MB L2): Binary search offsets fit in cache → fast
-- Jetson Orin (4 MB L2): Cache misses → 5-10x slower
-- Multi-tenant GPU: Cache contention → unpredictable latency
+2. Binary search is surprisingly competitive on modern GPUs thanks to large L2 caches.
 
-Octopus provides **stable O(1) dispatch regardless of cache state**.
+3. Block-level metadata gives you similar performance with more flexibility.
 
-### 2. Extensibility
-
-Binary Search can only answer: "Which image does pixel X belong to?"
-
-Octopus block metadata can include **scheduling policy**:
-
-```python
-block_metadata = {
-    'image_id': 3,
-    'priority': HIGH,        # ROI prioritization
-    'strategy': HEAVY_BLUR,  # Different kernels per block
-    'stream_id': 2,          # Multi-stream scheduling
-}
-```
-
-### 3. Memory Efficiency
-
-| Approach | Memory for 10K images, 550M pixels |
-|----------|-----------------------------------|
-| O(1) Lookup | 2,474 MB |
-| Binary Search | 0.08 MB |
-| **Octopus** | **0.27 MB** |
-
-Octopus uses ~3x more than Binary Search but enables O(1) dispatch.
-
-## Installation
-
-```bash
-# Requirements
-pip install numba numpy pillow
-
-# CUDA toolkit (for GPU acceleration)
-# Numba supports CUDA 11.x and 12.x
-```
-
-## Usage
-
-### Basic Benchmark
-
-```bash
-# Standard benchmark (10K images)
-python triple_baseline_benchmark.py
-
-# Large scale test (100K images, small)
-python triple_baseline_benchmark.py --images 100000 --small
-
-# Extreme scale test (1M images, tiny)
-python triple_baseline_benchmark.py --images 1000000 --tiny
-```
-
-### Advanced Options
-
-```bash
-# Heavy kernel (10x iterations) - amplifies branch divergence
-python triple_baseline_benchmark.py --heavy
-
-# Cache flush mode - simulates real workload with cache contention
-python triple_baseline_benchmark.py --flush-cache
-
-# Combined
-python triple_baseline_benchmark.py --images 100000 --small --heavy
-```
-
-### Custom Integration
-
-```python
-from triple_baseline_benchmark import setup_baseline_c, kernel_baseline_c
-
-# Setup (runs on CPU, ~0.06ms for 10K images)
-block_to_image, block_start, block_end = setup_baseline_c(sizes, threshold=65536)
-
-# Transfer to GPU
-d_block_to_image = cuda.to_device(block_to_image)
-d_block_start = cuda.to_device(block_start)
-d_block_end = cuda.to_device(block_end)
-
-# Launch kernel
-num_blocks = len(block_to_image)
-kernel_baseline_c[num_blocks, 256](
-    d_images, d_offsets, d_widths, d_heights,
-    d_block_to_image, d_block_start, d_block_end, d_output
-)
-```
-
-## Target Applications
-
-### 1. Edge AI & Robotics 🤖
-- **Hardware**: NVIDIA Jetson Orin/Xavier (4-16 GB RAM, 2-4 MB L2)
-- **Problem**: O(1) lookup tables cause OOM; Binary search suffers cache misses
-- **Solution**: Octopus provides stable performance without memory explosion
-
-### 2. High-Throughput Cloud APIs ☁️
-- **Use case**: Image processing APIs (filters, transforms, AI inference)
-- **Problem**: Padding wastes 30-50% compute; Binary search has latency jitter
-- **Solution**: Octopus enables zero-padding + deterministic SLA
-
-### 3. Gigapixel Processing 🔬
-- **Use case**: Medical imaging (pathology slides), satellite imagery
-- **Problem**: 100,000 x 100,000 pixel images → O(1) lookup needs hundreds of GB
-- **Solution**: Octopus makes previously impossible workloads feasible
-
-### 4. LLM Variable Sequences 📝
-- **Use case**: Transformer attention on ragged batches
-- **Problem**: Current solutions (cuSEQ, FasterTransformer) use complex offset arrays
-- **Solution**: Octopus block-level scheduling could simplify implementation
-
-## Benchmark Results Summary
-
-### Decision Matrix
-
-| M (images) | Item Size | Kernel Winner | Total Winner |
-|------------|-----------|---------------|--------------|
-| 10K | Normal (30-80K px) | Octopus (+13%) | **Octopus** |
-| 100K | Small (3-8K px) | Octopus (+15%) | ~Tie |
-| 1M | Tiny (300-800 px) | Octopus (+22%) | Binary Search* |
-
-*Binary Search wins total at 1M tiny items due to zero setup overhead, but Octopus kernel is still 22% faster.
-
-### System Insight
-
-```
-D2H transfer (256ms) dominates total time (288ms).
-In output-copy dominated pipelines, scheduler differences are masked.
-For fused GPU pipelines (no D2H), Octopus's O(1) advantage becomes visible.
-```
-
-## Limitations & Future Work
-
-1. **Threshold tuning**: Currently fixed at 65536; could be auto-tuned
-2. **Multi-GPU**: Not yet implemented; natural extension via block partitioning
-3. **Sparse workloads**: May have overhead for very sparse data
-4. **NLP integration**: Block scheduling for Transformer attention (future work)
-
-## Citation
-
-```bibtex
-@software{octopus2026,
-  title={Octopus: Memory-Efficient GPU Scheduling for Variable-Length Batches},
-  author={Matthew},
-  year={2026},
-  url={https://github.com/matthewlam721/octopus-gpu-scheduler}
-}
-```
-
-## License
-
-MIT License
-
-## Acknowledgments
-
-- NVIDIA for CUDA and Numba
-- The GPU computing community for inspiration
-- 🐙 Octopuses for the metaphor
+4. The "best" approach depends on your workload. I've provided the numbers; pick what fits.
 
 ---
 
-**Key Insight**: Hybrid achieves table-like O(1) dispatch without O(N) mapping, and matches the strongest no-table baseline (binary search) within ~1-5% while using negligible memory. On normal workloads, Octopus wins total time; on extreme scale (1M+ tiny items), Binary Search's zero setup wins, but Octopus kernel is always faster.
+Questions or benchmarks on other hardware welcome.

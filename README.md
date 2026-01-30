@@ -1,10 +1,8 @@
-# 🐙 Octopus-Inspired GPU Load Balancing
+# 🐙 Octopus: Block-Level Metadata for Ragged Tensors
 
-**Bio-inspired adaptive block assignment for image processing**
 The name "Octopus" reflects the distributed, efficient coordination 
 — but the core technique is straightforward: replace O(N) per-element 
-mapping with O(B) block-level metadata
----
+mapping with O(B) block-level metadata.
 
 ## TL;DR
 

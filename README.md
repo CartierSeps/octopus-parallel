@@ -278,7 +278,7 @@ For fused GPU pipelines (no D2H), Octopus's O(1) advantage becomes visible.
   title={Octopus: Memory-Efficient GPU Scheduling for Variable-Length Batches},
   author={Matthew},
   year={2026},
-  url={https://github.com/[username]/octopus-gpu-scheduler}
+  url={https://github.com/matthewlam721/octopus-gpu-scheduler}
 }
 ```
 

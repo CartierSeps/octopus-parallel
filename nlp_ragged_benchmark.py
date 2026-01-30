@@ -534,13 +534,13 @@ def main():
     """)
     
     if avg_total > 1.0:
-        print("  ✅ VALIDATED: Hybrid approach works for ML ragged tensor preprocessing!")
+        print("  VALIDATED: Hybrid approach works for ML ragged tensor preprocessing!")
         print("     Block-level metadata beats per-element mapping on total cost.")
     else:
-        print("  ❌ NOT VALIDATED: Grid-Stride-Fair wins on this workload.")
+        print("   NOT VALIDATED: Grid-Stride-Fair wins on this workload.")
     
     print("\n" + "=" * 70)
-    print("🐙 ML ragged tensor benchmark complete!")
+    print(" ML ragged tensor benchmark complete!")
     print("=" * 70)
     
     return all_results

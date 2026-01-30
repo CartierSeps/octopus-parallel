@@ -215,7 +215,8 @@ Jetson Orin Nano ordered. Will update with edge device results.
 | `triple_baseline_benchmark.py` | Synthetic benchmark (A vs B vs C) |
 | `video_frame_extract.py` | Extract frames from video via ffmpeg |
 | `video_benchmark.py` | Benchmark on real video frames |
-| `edge_benchmark.py` | CPU vs GPU preprocessing for YOLO |
+| `edge_benchmark.py` | CPU vs GPU preprocessing comparison |
+| `yolo_benchmark.py` | YOLOv8 object detection pipeline |
 
 ## Hardware
 

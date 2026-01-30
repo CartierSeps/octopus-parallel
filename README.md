@@ -244,6 +244,37 @@ Based on our benchmarks (Setup: 148x faster, H2D: 150x faster, Memory: 11,000x l
 
 ---
 
+## Crossover Analysis: When Does Grid-Stride Catch Up?
+
+Using the formula:
+
+```
+N* = (T_setup_grid - T_setup_hybrid) / (T_kernel_hybrid - T_kernel_grid)
+```
+
+| Test | Kernel Δ | N* (Crossover) | Interpretation |
+|------|----------|----------------|----------------|
+| Flickr Pure | Hybrid +0.16ms | **524 iterations** | Need 524 runs to break even |
+| Flickr + 4K | Hybrid +0.42ms | **140 iterations** | Need 140 runs |
+| Flickr + 8K | Hybrid +0.03ms | **1,122 iterations** | Need 1,122 runs |
+| Flickr 1000 | Hybrid -0.21ms | **∞ (Hybrid always wins)** | Grid never catches up |
+| Flickr 1000 + 8K | Hybrid +0.09ms | **1,341 iterations** | Need 1,341 runs |
+
+### Reality Check
+
+| Typical Usage | Iterations per Batch | Winner |
+|---------------|---------------------|--------|
+| Online/streaming | 1 | **Hybrid** |
+| Data augmentation | 1-5 | **Hybrid** |
+| Training loop (same batch) | 10-50 | **Hybrid** |
+| Extreme reuse | 140-1300+ | Grid-Stride |
+
+**Most pipelines run each batch 1-10 times. Grid-Stride needs 140-1300+ iterations just to break even on setup cost.**
+
+⚠️ **And this analysis doesn't even include H2D transfer of the 341MB mapping table!** With H2D included, the crossover point is even higher.
+
+---
+
 ## The Octopus Insight
 
 An octopus has ~500 million neurons distributed across 8 arms. But the brain doesn't micromanage every neuron — it coordinates at the **arm level**. Each arm has local autonomy to handle its own movements.

